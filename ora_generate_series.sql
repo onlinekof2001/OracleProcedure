@@ -6,6 +6,7 @@ create or replace type numbers_table is table of series_num;
 -- Function body.
 -- Created by ytt.
 -- 2015/12/9
+-- "select * from table(ora_generate_series(1,10));"
 create or replace function ora_generate_series
 (
 f_start_num number := 1, -- Start number.
@@ -20,7 +21,7 @@ is
 begin
   i := f_start_num;
   j := 1;
-  -- Increase nested table‘s size.
+  -- Increase nested table's size.
   list.extend(f_end_num);
   -- Loop begin.
   while i <= f_end_num loop
