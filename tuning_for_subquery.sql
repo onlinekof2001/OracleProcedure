@@ -166,6 +166,8 @@ select hse.tir_num_tiers_tir "store_number",
 			   tir_sous_num_tiers_tir,
 			   elg_num_elt_gestion_elg
           from stcom.historique_stock_eg
+		 where tys_type_stock_tys = '01' 
+		   and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')
 		 group by tti_num_type_tiers_tir,tir_num_tiers_tir,tir_sous_num_tiers_tir,elg_num_elt_gestion_elg) subq_view,
 		 md0000stcom.tiers_ref r
  where hse.tti_num_type_tiers_tir = subq_view.tti_num_type_tiers_tir
@@ -179,38 +181,42 @@ select hse.tir_num_tiers_tir "store_number",
    and r.tti_num_type_tiers_tti = 7
    and hse.tti_num_type_tiers_tir = 7
    and hse.tys_type_stock_tys = '01' --to change 01 or 08
-   and trunc(hse.hsg_date) <= to_date('31/07/18', 'dd/mm/yy') -- to change
    and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
  group by hse.tir_num_tiers_tir;
 
 Execution Plan
 ----------------------------------------------------------
-Plan hash value: 2670332352
+Plan hash value: 4087537689
 
-------------------------------------------------------------------------------------------------------------
-| Id  | Operation                 | Name                   | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
-------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT          |                        |    37 |  1110 |       |   173K  (1)| 00:34:39 |
-|   1 |  HASH GROUP BY            |                        |    37 |  1110 |       |   173K  (1)| 00:34:39 |
-|   2 |   VIEW                    | VM_NWVW_1              |  1566 | 46980 |       |   173K  (1)| 00:34:39 |
-|*  3 |    FILTER                 |                        |       |       |       |            |          |
-|   4 |     HASH GROUP BY         |                        |  1566 |   122K|       |   173K  (1)| 00:34:39 |
-|*  5 |      HASH JOIN            |                        |   967K|    73M|    59M|   173K  (1)| 00:34:39 |
-|*  6 |       TABLE ACCESS FULL   | HISTORIQUE_STOCK_EG    |   967K|    47M|       | 71918   (2)| 00:14:24 |
-|*  7 |       INDEX FAST FULL SCAN| PK_HISTORIQUE_STOCK_EG |    21M|   575M|       | 57493   (1)| 00:11:30 |
-------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------
+| Id  | Operation                            | Name                   | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                     |                        |     2 |    60 |   125K  (1)| 00:25:04 |
+|   1 |  HASH GROUP BY                       |                        |     2 |    60 |   125K  (1)| 00:25:04 |
+|   2 |   VIEW                               | VM_NWVW_1              |     2 |    60 |   125K  (1)| 00:25:04 |
+|*  3 |    FILTER                            |                        |       |       |            |          |
+|   4 |     HASH GROUP BY                    |                        |     2 |   220 |   125K  (1)| 00:25:04 |
+|   5 |      NESTED LOOPS                    |                        |  1001 |   107K|   125K  (1)| 00:25:04 |
+|*  6 |       HASH JOIN                      |                        | 17972 |  1386K| 71361   (1)| 00:14:17 |
+|   7 |        MAT_VIEW ACCESS BY INDEX ROWID| TIERS_REF              |    35 |   945 |    11   (0)| 00:00:01 |
+|*  8 |         INDEX RANGE SCAN             | IDX02_TTI_PAY_DEV      |    35 |       |     3   (0)| 00:00:01 |
+|*  9 |        TABLE ACCESS FULL             | HISTORIQUE_STOCK_EG    |    19M|   959M| 71294   (1)| 00:14:16 |
+|* 10 |       INDEX RANGE SCAN               | PK_HISTORIQUE_STOCK_EG |     1 |    31 |     3   (0)| 00:00:01 |
+---------------------------------------------------------------------------------------------------------------
 
 Predicate Information (identified by operation id):
 ---------------------------------------------------
 
    3 - filter("HSE"."HSG_DATE"=MAX("HSG_DATE"))
-   5 - access("HSE"."TTI_NUM_TYPE_TIERS_TIR"="TTI_NUM_TYPE_TIERS_TIR" AND
-              "HSE"."TIR_NUM_TIERS_TIR"="TIR_NUM_TIERS_TIR" AND
+   6 - access("HSE"."TIR_SOUS_NUM_TIERS_TIR"="R"."TIR_SOUS_NUM_TIERS")
+   8 - access("R"."TTI_NUM_TYPE_TIERS_TTI"=7 AND "R"."PAY_CODE_PAYS_PAY"='CN' AND
+              "R"."DEV_CODE_DEVISE_DEV"='CNY')
+   9 - filter("HSE"."HSG_QUANTITE_STOCK"<>0 AND "HSE"."TTI_NUM_TYPE_TIERS_TIR"=7 AND
+              "HSE"."TYS_TYPE_STOCK_TYS"='01')
+  10 - access("TTI_NUM_TYPE_TIERS_TIR"=7 AND "HSE"."TIR_NUM_TIERS_TIR"="TIR_NUM_TIERS_TIR" AND
               "HSE"."TIR_SOUS_NUM_TIERS_TIR"="TIR_SOUS_NUM_TIERS_TIR" AND
-              "HSE"."ELG_NUM_ELT_GESTION_ELG"="ELG_NUM_ELT_GESTION_ELG")
-   6 - filter("HSE"."HSG_QUANTITE_STOCK"<>0 AND TRUNC(INTERNAL_FUNCTION("HSE"."HSG_DATE"))<=TO_DATE(
-              '31/07/18','dd/mm/yy') AND "HSE"."TTI_NUM_TYPE_TIERS_TIR"=7 AND "HSE"."TYS_TYPE_STOCK_TYS"='01')
-   7 - filter("TTI_NUM_TYPE_TIERS_TIR"=7)
+              "HSE"."ELG_NUM_ELT_GESTION_ELG"="ELG_NUM_ELT_GESTION_ELG" AND "TYS_TYPE_STOCK_TYS"='01')
+       filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy'))
 
 
 /* 尝试子查询解嵌套直接优化，通过提示PUSH_SUBQ/NO_PUSH_SUBQ将子查询提前进行评估
@@ -273,5 +279,69 @@ Predicate Information (identified by operation id):
               "TIR_SOUS_NUM_TIERS_TIR"=:B3 AND "ELG_NUM_ELT_GESTION_ELG"=:B4 AND "TYS_TYPE_STOCK_TYS"='01')
        filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy'))
 	   
-/* 添加提示后，发现子查询步骤9->8->7被推进到了外部优先查询, 这里嵌套查询两张表使用了绑定变量合并成一个查询。
+/* 添加提示后，发现子查询步骤9->8->7被推进到了外部优先查询, 这里嵌套查询两张表使用了绑定变量合并成一个查询。尝试子查询分解
 */
+
+with
+    t1 as 
+	(select tir_num_tiers_tir,hsg_quantite_stock,hsg_dernier_prmp_connu,tir_sous_num_tiers_tir
+       from STCOM.historique_stock_eg hse 
+      where hse.tti_num_type_tiers_tir = 7
+        and hse.tys_type_stock_tys = '01'
+        and hse.hsg_date = (select max(hsg_date)
+                              from stcom.historique_stock_eg
+                             where tti_num_type_tiers_tir = hse.tti_num_type_tiers_tir
+                               and tir_num_tiers_tir = hse.tir_num_tiers_tir
+                               and tir_sous_num_tiers_tir = hse.tir_sous_num_tiers_tir
+                               and elg_num_elt_gestion_elg = hse.elg_num_elt_gestion_elg
+                               and tys_type_stock_tys = '01'
+                               and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')) -- to change
+        and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
+    ),
+	t2 as
+	(select tir_sous_num_tiers
+   	   from md0000stcom.tiers_ref r
+	  where r.dev_code_devise_dev = 'CNY'
+        and r.pay_code_pays_pay = 'CN'
+        and r.tti_num_type_tiers_tti = 7
+	)
+select t1.tir_num_tiers_tir "store_number",
+       sum(t1.hsg_quantite_stock * t1.hsg_dernier_prmp_connu) as Stock_value
+  from t1,t2
+ group by t1.tir_num_tiers_tir;
+ 
+ 
+with
+    t1 as 
+	(select tir_num_tiers_tir,hsg_quantite_stock,hsg_dernier_prmp_connu,tir_sous_num_tiers_tir,hsg_date
+       from STCOM.historique_stock_eg hse 
+	  inner join md0000stcom.tiers_ref r
+     	 on r.tir_sous_num_tiers = hse.tir_sous_num_tiers_tir
+      where r.dev_code_devise_dev = 'CNY'
+        and r.pay_code_pays_pay = 'CN'
+        and r.tti_num_type_tiers_tti = 7
+		and hse.tti_num_type_tiers_tir = 7
+        and hse.tys_type_stock_tys = '01'
+        and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
+    ),
+	t2 as
+	(select max(hsg_date) hsg_date,
+	        tti_num_type_tiers_tir,
+			tir_num_tiers_tir,
+			tir_sous_num_tiers_tir,
+			elg_num_elt_gestion_elg
+       from stcom.historique_stock_eg
+	  where tys_type_stock_tys = '01'
+        and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')
+	  group by tti_num_type_tiers_tir,tir_num_tiers_tir,tir_sous_num_tiers_tir,elg_num_elt_gestion_elg
+	)
+select t1.tir_num_tiers_tir "store_number",
+       sum(t1.hsg_quantite_stock * t1.hsg_dernier_prmp_connu) as Stock_value
+  from t1,t2
+  where t1.hsg_date = (select max(hsg_date)
+                              from t2
+                             where tti_num_type_tiers_tir = t2.tti_num_type_tiers_tir
+                               and tir_num_tiers_tir = t2.tir_num_tiers_tir
+                               and tir_sous_num_tiers_tir = t2.tir_sous_num_tiers_tir
+                               and elg_num_elt_gestion_elg = t2.elg_num_elt_gestion_elg)
+ group by t1.tir_num_tiers_tir;

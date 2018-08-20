@@ -82,6 +82,11 @@ SELECT a.tablespace_name,
  GROUP BY A.tablespace_name 
  ORDER BY fsfi;
  
+
+ 
+ 
+ 
+ 
 /*
 table space Fragmentation records, free records in a tablespace, if it is not a serial free space, then a tablespace might include several free records. 
 */ 
