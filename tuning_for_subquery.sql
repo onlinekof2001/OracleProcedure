@@ -52,10 +52,10 @@ Predicate Information (identified by operation id):
               "TIR_SOUS_NUM_TIERS_TIR"="HSE"."TIR_SOUS_NUM_TIERS_TIR" AND
               "ELG_NUM_ELT_GESTION_ELG"="HSE"."ELG_NUM_ELT_GESTION_ELG" AND "TYS_TYPE_STOCK_TYS"='01')
        filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy'))
-
+  
 /* 执行计划顺序是 8->7->9, 索引扫描TIERS_REF表获得记录集再与HISTORIQUE_STOCK_EG关联获取结果集后，最后与子查询中的HISTORIQUE_STOCK_EG关联，
 聚合计算满足max()条件的结果集。关键消耗时间查询在9，这里全表扫描获取19M数据，怎么能减少这部分的消耗成为关键！
-1. 先看自连接查询执行计划
+1. 先看自连接查询执行计划(我这里做了一个变形，子查询和外部查询都用了相同的字段tys_type_stock_tys，取值也一样。)
 */   
 
 select hse.tir_num_tiers_tir "store_number",
@@ -69,25 +69,25 @@ select hse.tir_num_tiers_tir "store_number",
                           and tir_num_tiers_tir = hse.tir_num_tiers_tir
                           and tir_sous_num_tiers_tir = hse.tir_sous_num_tiers_tir
                           and elg_num_elt_gestion_elg = hse.elg_num_elt_gestion_elg
-                          and tys_type_stock_tys = '01'
+                          and tys_type_stock_tys = hse.tys_type_stock_tys
                           and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')) -- to change
    and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
  group by hse.tir_num_tiers_tir;
  
 Execution Plan
 ----------------------------------------------------------
-Plan hash value: 347253727
+Plan hash value: 3726287240
 
 -----------------------------------------------------------------------------------------------------------
 | Id  | Operation                | Name                   | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
 -----------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT         |                        |     1 |    99 |       |   184K  (1)| 00:37:00 |
-|   1 |  SORT AGGREGATE          |                        |     1 |    99 |       |            |          |
-|*  2 |   HASH JOIN              |                        |   967K|    91M|    79M|   184K  (1)| 00:37:00 |
-|   3 |    VIEW                  | VW_SQ_1                |  1077K|    66M|       | 67595   (2)| 00:13:32 |
-|   4 |     HASH GROUP BY        |                        |  1077K|    31M|    49M| 67595   (2)| 00:13:32 |
-|*  5 |      INDEX FAST FULL SCAN| PK_HISTORIQUE_STOCK_EG |  1077K|    31M|       | 58406   (2)| 00:11:41 |
-|*  6 |    TABLE ACCESS FULL     | HISTORIQUE_STOCK_EG    |    19M|   627M|       | 71226   (1)| 00:14:15 |
+|   0 | SELECT STATEMENT         |                        |    37 |  2701 |       |   195K  (1)| 00:39:06 |
+|   1 |  HASH GROUP BY           |                        |    37 |  2701 |       |   195K  (1)| 00:39:06 |
+|*  2 |   HASH JOIN              |                        |  1007K|    70M|    48M|   195K  (1)| 00:39:06 |
+|   3 |    VIEW                  | VW_SQ_1                |  1122K|    35M|       | 69855   (2)| 00:13:59 |
+|   4 |     HASH GROUP BY        |                        |  1122K|    33M|    51M| 69855   (2)| 00:13:59 |
+|*  5 |      INDEX FAST FULL SCAN| PK_HISTORIQUE_STOCK_EG |  1122K|    33M|       | 60282   (2)| 00:12:04 |
+|*  6 |    TABLE ACCESS FULL     | HISTORIQUE_STOCK_EG    |    20M|   768M|       | 73528   (1)| 00:14:43 |
 -----------------------------------------------------------------------------------------------------------
 
 Predicate Information (identified by operation id):
@@ -95,93 +95,87 @@ Predicate Information (identified by operation id):
 
    2 - access("HSE"."HSG_DATE"="MAX(HSG_DATE)" AND "ITEM_1"="HSE"."TTI_NUM_TYPE_TIERS_TIR" AND
               "ITEM_2"="HSE"."TIR_NUM_TIERS_TIR" AND "ITEM_3"="HSE"."TIR_SOUS_NUM_TIERS_TIR" AND
-              "ITEM_4"="HSE"."ELG_NUM_ELT_GESTION_ELG")
+              "ITEM_4"="HSE"."ELG_NUM_ELT_GESTION_ELG" AND "ITEM_5"="HSE"."TYS_TYPE_STOCK_TYS")
    5 - filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy') AND
               "TTI_NUM_TYPE_TIERS_TIR"=7 AND "TYS_TYPE_STOCK_TYS"='01')
    6 - filter("HSE"."HSG_QUANTITE_STOCK"<>0 AND "HSE"."TTI_NUM_TYPE_TIERS_TIR"=7 AND
-              "HSE"."TYS_TYPE_STOCK_TYS"='01')   
-	   
+              "HSE"."TYS_TYPE_STOCK_TYS"='01')
+
+			  
 /* 执行计划3有VIEW关键字，联想到视图合并的概念。这里看到的执行计划是5->4->3先做，并保持结果"原样" 再与外部HISTORIQUE_STOCK_EG联结时，
-要对HISTORIQUE_STOCK_EG进行全表扫描，效率低，尝试改写语句进行视图合并看看。
+要对HISTORIQUE_STOCK_EG进行全表扫描，效率低。
 */   	
 
 select hse.tir_num_tiers_tir "store_number",
        sum(hse.hsg_quantite_stock * hse.hsg_dernier_prmp_connu) as Stock_value
-  from STCOM.historique_stock_eg hse,
-       (select max(hsg_date) hsg_date,
-	           tti_num_type_tiers_tir,
-			   tir_num_tiers_tir,
-			   tir_sous_num_tiers_tir,
-			   elg_num_elt_gestion_elg
-          from stcom.historique_stock_eg
-		 group by tti_num_type_tiers_tir,tir_num_tiers_tir,tir_sous_num_tiers_tir,elg_num_elt_gestion_elg) subq_view,
- where hse.tti_num_type_tiers_tir = subq_view.tti_num_type_tiers_tir
-   and hse.tir_num_tiers_tir = subq_view.tir_num_tiers_tir
-   and hse.tir_sous_num_tiers_tir = subq_view.tir_sous_num_tiers_tir
-   and hse.elg_num_elt_gestion_elg = subq_view.elg_num_elt_gestion_elg
-   and hse.hsg_date = subq_view.hsg_date
-   and hse.tti_num_type_tiers_tir = 7
+  from STCOM.historique_stock_eg hse 
+ where hse.tti_num_type_tiers_tir = 7
    and hse.tys_type_stock_tys = '01' --to change 01 or 08
-   and trunc(hse.hsg_date) <= to_date('31/07/18', 'dd/mm/yy') -- to change
+   and hse.hsg_date = (select /*+ MERGE*/ max(hsg_date)
+                         from stcom.historique_stock_eg
+                        where tti_num_type_tiers_tir = hse.tti_num_type_tiers_tir
+                          and tir_num_tiers_tir = hse.tir_num_tiers_tir
+                          and tir_sous_num_tiers_tir = hse.tir_sous_num_tiers_tir
+                          and elg_num_elt_gestion_elg = hse.elg_num_elt_gestion_elg
+                          and tys_type_stock_tys = hse.tys_type_stock_tys
+                          and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')) -- to change
    and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
- group by hse.tir_num_tiers_tir;   
+ group by hse.tir_num_tiers_tir;
 
 Execution Plan
 ----------------------------------------------------------
-Plan hash value: 671692866
+Plan hash value: 1083579351
 
------------------------------------------------------------------------------------------------------------
-| Id  | Operation                | Name                   | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT         |                        |    37 |  1110 |       |   191K  (1)| 00:38:14 |
-|   1 |  HASH GROUP BY           |                        |    37 |  1110 |       |   191K  (1)| 00:38:14 |
-|   2 |   VIEW                   | VM_NWVW_1              |   967K|    27M|       |   191K  (1)| 00:38:14 |
-|   3 |    HASH GROUP BY         |                        |   967K|    73M|    88M|   191K  (1)| 00:38:14 |
-|*  4 |     HASH JOIN            |                        |   967K|    73M|    59M|   173K  (1)| 00:34:39 |
-|*  5 |      TABLE ACCESS FULL   | HISTORIQUE_STOCK_EG    |   967K|    47M|       | 71918   (2)| 00:14:24 |
-|*  6 |      INDEX FAST FULL SCAN| PK_HISTORIQUE_STOCK_EG |    21M|   575M|       | 57493   (1)| 00:11:30 |
------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+| Id  | Operation                 | Name                   | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT          |                        |    37 |  1110 |       |   197K  (1)| 00:39:27 |
+|   1 |  HASH GROUP BY            |                        |    37 |  1110 |       |   197K  (1)| 00:39:27 |
+|   2 |   VIEW                    | VM_NWVW_1              |  1779 | 53370 |       |   197K  (1)| 00:39:27 |
+|*  3 |    FILTER                 |                        |       |       |       |            |          |
+|   4 |     HASH GROUP BY         |                        |  1779 |   144K|       |   197K  (1)| 00:39:27 |
+|*  5 |      HASH JOIN            |                        |  1122K|    88M|    46M|   197K  (1)| 00:39:27 |
+|*  6 |       INDEX FAST FULL SCAN| PK_HISTORIQUE_STOCK_EG |  1122K|    33M|       | 60282   (2)| 00:12:04 |
+|*  7 |       TABLE ACCESS FULL   | HISTORIQUE_STOCK_EG    |    20M|   999M|       | 73528   (1)| 00:14:43 |
+------------------------------------------------------------------------------------------------------------
 
 Predicate Information (identified by operation id):
 ---------------------------------------------------
 
-   4 - access("HSE"."TTI_NUM_TYPE_TIERS_TIR"="TTI_NUM_TYPE_TIERS_TIR" AND
+   3 - filter("HSE"."HSG_DATE"=MAX("HSG_DATE"))
+   5 - access("HSE"."TTI_NUM_TYPE_TIERS_TIR"="TTI_NUM_TYPE_TIERS_TIR" AND
               "HSE"."TIR_NUM_TIERS_TIR"="TIR_NUM_TIERS_TIR" AND
               "HSE"."TIR_SOUS_NUM_TIERS_TIR"="TIR_SOUS_NUM_TIERS_TIR" AND
-              "HSE"."ELG_NUM_ELT_GESTION_ELG"="ELG_NUM_ELT_GESTION_ELG")
-   5 - filter("HSE"."HSG_QUANTITE_STOCK"<>0 AND TRUNC(INTERNAL_FUNCTION("HSE"."HSG_DATE"))<=TO_DATE
-              ('31/07/18','dd/mm/yy') AND "HSE"."TTI_NUM_TYPE_TIERS_TIR"=7 AND "HSE"."TYS_TYPE_STOCK_TYS"='01')
-   6 - filter("TTI_NUM_TYPE_TIERS_TIR"=7)
+              "HSE"."ELG_NUM_ELT_GESTION_ELG"="ELG_NUM_ELT_GESTION_ELG" AND
+              "HSE"."TYS_TYPE_STOCK_TYS"="TYS_TYPE_STOCK_TYS")
+   6 - filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy') AND
+              "TTI_NUM_TYPE_TIERS_TIR"=7 AND "TYS_TYPE_STOCK_TYS"='01')
+   7 - filter("HSE"."HSG_QUANTITE_STOCK"<>0 AND "HSE"."TTI_NUM_TYPE_TIERS_TIR"=7 AND
+              "HSE"."TYS_TYPE_STOCK_TYS"='01')
+
    
-/* 视图合并后的执行计划效率没有发生显著的改变, 对HISTORIQUE_STOCK_EG表的查询又全表扫描变成了全索引快速扫描, 从执行计划的时间上看消耗差不多。
-但是加上tiers_ref后从执行计划上看，性能有所改善。 
+/* 强制视图合并后的执行计划效率反而更差了
 */ 
 
 select hse.tir_num_tiers_tir "store_number",
        sum(hse.hsg_quantite_stock * hse.hsg_dernier_prmp_connu) as Stock_value
   from STCOM.historique_stock_eg hse,
-       (select max(hsg_date) hsg_date,
-	           tti_num_type_tiers_tir,
-			   tir_num_tiers_tir,
-			   tir_sous_num_tiers_tir,
-			   elg_num_elt_gestion_elg
-          from stcom.historique_stock_eg
-		 where tys_type_stock_tys = '01' 
-		   and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')
-		 group by tti_num_type_tiers_tir,tir_num_tiers_tir,tir_sous_num_tiers_tir,elg_num_elt_gestion_elg) subq_view,
-		 md0000stcom.tiers_ref r
- where hse.tti_num_type_tiers_tir = subq_view.tti_num_type_tiers_tir
-   and hse.tir_num_tiers_tir = subq_view.tir_num_tiers_tir
-   and hse.tir_sous_num_tiers_tir = subq_view.tir_sous_num_tiers_tir
-   and hse.elg_num_elt_gestion_elg = subq_view.elg_num_elt_gestion_elg
-   and hse.hsg_date = subq_view.hsg_date
-   and hse.tir_sous_num_tiers_tir = r.tir_sous_num_tiers
+       md0000stcom.tiers_ref r 
+ where hse.tti_num_type_tiers_tir = 7
    and r.dev_code_devise_dev = 'CNY'
    and r.pay_code_pays_pay = 'CN'
    and r.tti_num_type_tiers_tti = 7
-   and hse.tti_num_type_tiers_tir = 7
    and hse.tys_type_stock_tys = '01' --to change 01 or 08
+   and hse.hsg_date = (select /*+ MERGE*/ max(hsg_date)
+                         from stcom.historique_stock_eg
+                        where tti_num_type_tiers_tir = hse.tti_num_type_tiers_tir
+                          and tir_num_tiers_tir = hse.tir_num_tiers_tir
+                          and tir_sous_num_tiers_tir = hse.tir_sous_num_tiers_tir
+                          and elg_num_elt_gestion_elg = hse.elg_num_elt_gestion_elg
+                          and tys_type_stock_tys = '01'
+                          and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')) -- to change
    and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
+   and r.tir_sous_num_tiers = hse.tir_sous_num_tiers_tir(+)
  group by hse.tir_num_tiers_tir;
 
 Execution Plan
@@ -216,8 +210,7 @@ Predicate Information (identified by operation id):
   10 - access("TTI_NUM_TYPE_TIERS_TIR"=7 AND "HSE"."TIR_NUM_TIERS_TIR"="TIR_NUM_TIERS_TIR" AND
               "HSE"."TIR_SOUS_NUM_TIERS_TIR"="TIR_SOUS_NUM_TIERS_TIR" AND
               "HSE"."ELG_NUM_ELT_GESTION_ELG"="ELG_NUM_ELT_GESTION_ELG" AND "TYS_TYPE_STOCK_TYS"='01')
-       filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy'))
-
+       filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy'))	  
 
 /* 尝试子查询解嵌套直接优化，通过提示PUSH_SUBQ/NO_PUSH_SUBQ将子查询提前进行评估
 */
@@ -280,11 +273,14 @@ Predicate Information (identified by operation id):
        filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy'))
 	   
 /* 添加提示后，发现子查询步骤9->8->7被推进到了外部优先查询, 这里嵌套查询两张表使用了绑定变量合并成一个查询。尝试子查询分解
+以下思路均不对, 效果更差。
 */
 
 with
     t1 as 
-	(select tir_num_tiers_tir,hsg_quantite_stock,hsg_dernier_prmp_connu,tir_sous_num_tiers_tir
+	(select hse.tir_num_tiers_tir STORE_NUMBER,
+            sum(hse.hsg_quantite_stock * hse.hsg_dernier_prmp_connu) as STOCK_VALUE,
+			hse.tir_sous_num_tiers_tir
        from STCOM.historique_stock_eg hse 
       where hse.tti_num_type_tiers_tir = 7
         and hse.tys_type_stock_tys = '01'
@@ -294,9 +290,10 @@ with
                                and tir_num_tiers_tir = hse.tir_num_tiers_tir
                                and tir_sous_num_tiers_tir = hse.tir_sous_num_tiers_tir
                                and elg_num_elt_gestion_elg = hse.elg_num_elt_gestion_elg
-                               and tys_type_stock_tys = '01'
+                               and tys_type_stock_tys = hse.tys_type_stock_tys							
                                and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')) -- to change
         and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
+      group by hse.tir_num_tiers_tir,hse.tir_sous_num_tiers_tir
     ),
 	t2 as
 	(select tir_sous_num_tiers
@@ -305,43 +302,40 @@ with
         and r.pay_code_pays_pay = 'CN'
         and r.tti_num_type_tiers_tti = 7
 	)
-select t1.tir_num_tiers_tir "store_number",
-       sum(t1.hsg_quantite_stock * t1.hsg_dernier_prmp_connu) as Stock_value
+select t1.STORE_NUMBER,
+       t1.STOCK_VALUE
   from t1,t2
- group by t1.tir_num_tiers_tir;
+  where t1.tir_sous_num_tiers_tir = t2.tir_sous_num_tiers;
  
- 
-with
-    t1 as 
-	(select tir_num_tiers_tir,hsg_quantite_stock,hsg_dernier_prmp_connu,tir_sous_num_tiers_tir,hsg_date
-       from STCOM.historique_stock_eg hse 
-	  inner join md0000stcom.tiers_ref r
-     	 on r.tir_sous_num_tiers = hse.tir_sous_num_tiers_tir
-      where r.dev_code_devise_dev = 'CNY'
-        and r.pay_code_pays_pay = 'CN'
-        and r.tti_num_type_tiers_tti = 7
-		and hse.tti_num_type_tiers_tir = 7
-        and hse.tys_type_stock_tys = '01'
-        and ((1 = 1 and hse.hsg_quantite_stock <> 0) or (1 = 0))
-    ),
-	t2 as
-	(select max(hsg_date) hsg_date,
-	        tti_num_type_tiers_tir,
-			tir_num_tiers_tir,
-			tir_sous_num_tiers_tir,
-			elg_num_elt_gestion_elg
-       from stcom.historique_stock_eg
-	  where tys_type_stock_tys = '01'
-        and trunc(hsg_date) <= to_date('31/07/18', 'dd/mm/yy')
-	  group by tti_num_type_tiers_tir,tir_num_tiers_tir,tir_sous_num_tiers_tir,elg_num_elt_gestion_elg
-	)
-select t1.tir_num_tiers_tir "store_number",
-       sum(t1.hsg_quantite_stock * t1.hsg_dernier_prmp_connu) as Stock_value
-  from t1,t2
-  where t1.hsg_date = (select max(hsg_date)
-                              from t2
-                             where tti_num_type_tiers_tir = t2.tti_num_type_tiers_tir
-                               and tir_num_tiers_tir = t2.tir_num_tiers_tir
-                               and tir_sous_num_tiers_tir = t2.tir_sous_num_tiers_tir
-                               and elg_num_elt_gestion_elg = t2.elg_num_elt_gestion_elg)
- group by t1.tir_num_tiers_tir;
+Execution Plan
+----------------------------------------------------------
+Plan hash value: 4034270401
+
+--------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                         | Name                   | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+--------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                  |                        |   930 | 93000 |       |   143K  (2)| 00:28:42 |
+|   1 |  HASH GROUP BY                    |                        |   930 | 93000 |       |   143K  (2)| 00:28:42 |
+|*  2 |   HASH JOIN                       |                        |   930 | 93000 |       |   143K  (2)| 00:28:42 |
+|*  3 |    HASH JOIN                      |                        | 18616 |  1218K|       | 73598   (1)| 00:14:44 |
+|   4 |     MAT_VIEW ACCESS BY INDEX ROWID| TIERS_REF              |    36 |   972 |       |    11   (0)| 00:00:01 |
+|*  5 |      INDEX RANGE SCAN             | IDX02_TTI_PAY_DEV      |    36 |       |       |     3   (0)| 00:00:01 |
+|*  6 |     TABLE ACCESS FULL             | HISTORIQUE_STOCK_EG    |    20M|   768M|       | 73528   (1)| 00:14:43 |
+|   7 |    VIEW                           | VW_SQ_1                |  1122K|    35M|       | 69855   (2)| 00:13:59 |
+|   8 |     HASH GROUP BY                 |                        |  1122K|    33M|    51M| 69855   (2)| 00:13:59 |
+|*  9 |      INDEX FAST FULL SCAN         | PK_HISTORIQUE_STOCK_EG |  1122K|    33M|       | 60282   (2)| 00:12:04 |
+--------------------------------------------------------------------------------------------------------------------
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+
+   2 - access("HSE"."HSG_DATE"="MAX(HSG_DATE)" AND "ITEM_1"="HSE"."TTI_NUM_TYPE_TIERS_TIR" AND
+              "ITEM_2"="HSE"."TIR_NUM_TIERS_TIR" AND "ITEM_3"="HSE"."TIR_SOUS_NUM_TIERS_TIR" AND
+              "ITEM_4"="HSE"."ELG_NUM_ELT_GESTION_ELG" AND "ITEM_5"="HSE"."TYS_TYPE_STOCK_TYS")
+   3 - access("HSE"."TIR_SOUS_NUM_TIERS_TIR"="TIR_SOUS_NUM_TIERS")
+   5 - access("R"."TTI_NUM_TYPE_TIERS_TTI"=7 AND "R"."PAY_CODE_PAYS_PAY"='CN' AND
+              "R"."DEV_CODE_DEVISE_DEV"='CNY')
+   6 - filter("HSE"."HSG_QUANTITE_STOCK"<>0 AND "HSE"."TTI_NUM_TYPE_TIERS_TIR"=7 AND
+              "HSE"."TYS_TYPE_STOCK_TYS"='01')
+   9 - filter(TRUNC(INTERNAL_FUNCTION("HSG_DATE"))<=TO_DATE('31/07/18','dd/mm/yy') AND
+              "TTI_NUM_TYPE_TIERS_TIR"=7 AND "TYS_TYPE_STOCK_TYS"='01')

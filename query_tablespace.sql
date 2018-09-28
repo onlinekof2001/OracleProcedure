@@ -1,3 +1,6 @@
+/*
+Query format 1:
+*/
 BREAK ON REPORT
 COMPUT SUM OF tbsp_size ON REPORT
 compute SUM OF used ON REPORT
@@ -40,6 +43,57 @@ TWXXX_0043_INDEX                     58,544       56,945        1,596       97
 TWXXX_00BE_DATA                     130,076      126,456        2,934       97
                                ------------ ------------ ------------
 sum                               2,112,388    2,005,788       74,315
+
+Query Format 2:
+*/
+
+
+col TABLESPACE_NAME for a25
+col SUM_SPACE(M) for a18
+col USED_SPACE(M) for a18
+col FREE_SPACE(M) for a18
+col USED_RATE(%) for a18
+
+
+SELECT D.TABLESPACE_NAME,
+       SPACE || 'M' "SUM_SPACE(M)",
+       BLOCKS "SUM_BLOCKS",
+       SPACE - NVL(FREE_SPACE, 0) || 'M' "USED_SPACE(M)",
+       ROUND((1 - NVL(FREE_SPACE, 0) / SPACE) * 100, 2) || '%' "USED_RATE(%)",
+       FREE_SPACE || 'M' "FREE_SPACE(M)"
+  FROM (SELECT TABLESPACE_NAME,
+               ROUND(SUM(BYTES) / (1024 * 1024), 2) SPACE,
+               SUM(BLOCKS) BLOCKS
+          FROM DBA_DATA_FILES
+         GROUP BY TABLESPACE_NAME) D,
+       (SELECT TABLESPACE_NAME,
+               ROUND(SUM(BYTES) / (1024 * 1024), 2) FREE_SPACE
+          FROM DBA_FREE_SPACE
+         GROUP BY TABLESPACE_NAME) F
+ WHERE D.TABLESPACE_NAME = F.TABLESPACE_NAME(+)
+UNION ALL
+SELECT D.TABLESPACE_NAME,
+       SPACE || 'M' "SUM_SPACE(M)",
+       BLOCKS SUM_BLOCKS,
+       USED_SPACE || 'M' "USED_SPACE(M)",
+       ROUND(NVL(USED_SPACE, 0) / SPACE * 100, 2) || '%' "USED_RATE(%)",
+       NVL(FREE_SPACE, 0) || 'M' "FREE_SPACE(M)"
+  FROM (SELECT TABLESPACE_NAME,
+               ROUND(SUM(BYTES) / (1024 * 1024), 2) SPACE,
+               SUM(BLOCKS) BLOCKS
+          FROM DBA_TEMP_FILES
+         GROUP BY TABLESPACE_NAME) D,
+       (SELECT TABLESPACE_NAME,
+               ROUND(SUM(BYTES_USED) / (1024 * 1024), 2) USED_SPACE,
+               ROUND(SUM(BYTES_FREE) / (1024 * 1024), 2) FREE_SPACE
+          FROM V$TEMP_SPACE_HEADER
+         GROUP BY TABLESPACE_NAME) F
+ WHERE D.TABLESPACE_NAME = F.TABLESPACE_NAME(+)
+ ORDER BY 1;
+
+
+/*
+Query for single tablespace datafile usage
 */
 
 SET LINE 300
@@ -70,30 +124,5 @@ SELECT tablespace_name,file_id,
 WHERE file_id = file_ts_id(+)
 order by 2, 3; 
 
-/*
-table space Fragmentation,while the fsfi less than 30, it means there are many fragments
-*/
 
-SELECT a.tablespace_name,
-       trunc(sqrt(max(blocks)/sum(blocks))* (100/sqrt(sqrt(count(blocks)))),2) fsfi 
-  FROM dba_free_space  a,dba_tablespaces b
- WHERE a.tablespace_name=b.tablespace_name
-   AND b.contents NOT IN ('TEMPORARY','UNDO','SYSAUX')
- GROUP BY A.tablespace_name 
- ORDER BY fsfi;
- 
 
- 
- 
- 
- 
-/*
-table space Fragmentation records, free records in a tablespace, if it is not a serial free space, then a tablespace might include several free records. 
-*/ 
-SELECT a.tablespace_name ,count(1)
-  FROM dba_free_space a, dba_tablespaces b 
- WHERE a.tablespace_name =b.tablespace_name
-   AND b.contents not in('TEMPORARY','UNDO','SYSAUX')
- GROUP BY a.tablespace_name
-HAVING count(1) >20
- ORDER BY 2; 
