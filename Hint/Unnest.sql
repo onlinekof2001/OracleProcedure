@@ -39,7 +39,7 @@ Statistics
           0  sorts (disk)
        8959  rows processed
 
--- 对上面查询进行变形, 内容放到where子句中进行过滤. 可以看到执行计划中使用了视图合并查询
+-- 对上面查询进行变形, 内容放到where子句中进行过滤. 可以看到执行计划中使用了视图查询
 select h01.object_id from t_hint01 h01,(select object_id from t_hint02) h02 where h01.object_id = h02.object_id;
 -- 与下面加了hint的结果一致, 不嵌套查询. 都是单独的对两张表进行查询.
 select object_id from t_hint01 h01 where exists (select /*+ unnest*/ object_id from t_hint02 h02 where h02.object_id = h01.object_id); 
