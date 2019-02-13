@@ -14,7 +14,7 @@ begin
 		MODIFY_SCHEMA is for update,insert,delete.
 		');
 	elsif lower(opt) = 'lst_role' then
-	/*list role with prefix SELECT_ and MODIFY_*/
+	/*list role with prefix SELECT_ and MODIFY_*, oracle_maintained only useful after 12c/
 	FOR v_role in (select role from dba_roles where oracle_maintained='N') loop
 		dbms_output.put_line(v_role.role);
 	end loop;
