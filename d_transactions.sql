@@ -17,7 +17,6 @@ rem ****************************************************************************
   
 clear columns
 col username for a20
-col machine for a35
 prompt list of running trascation.
 SELECT a.inst_id,a.sid, a.username,a.last_call_et, b.xidusn, b.used_urec, /*b.used_ublk,*/ round((b.used_ublk*8)/1024,2) used_MO, start_time , sysdate, machine
   FROM gv$session a, gv$transaction b

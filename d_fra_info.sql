@@ -40,7 +40,6 @@ SELECT * FROM V$FLASH_RECOVERY_AREA_USAGE;
 
 prompt 4-last backup
 
-set line 180
 col name for A20 trunc
 col duration for 999
 col status  for a25
